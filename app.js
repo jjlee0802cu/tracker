@@ -123,17 +123,23 @@ function button(text, onClick) {
   return b;
 }
 
-function chart(t, today, start, editable) {
+function chart(t, today, year, editable) {
   const set = state.data[t.id];
   const root = el("div", "chart" + (editable ? " editable" : ""));
-  const weeks = Math.floor((asDate(today) - asDate(start)) / 864e5 / 7) + 1;
+  const first = `${year}-01-01`;
+  const last = today;
+  const start = addDays(first, -weekday(first));
+  const weeks = Math.floor((asDate(last) - asDate(start)) / 864e5 / 7) + 1;
 
-  // Month labels: one per month change, dropped if the next one is too close to fit.
+  // Month labels at the week holding each month's 1st, dropped if the next one is too close to fit.
   const months = el("div", "months");
   const marks = [];
+  const monthOfWeek = (w) => {
+    const sat = addDays(start, w * 7 + 6);
+    return asDate(sat > last ? last : sat).getUTCMonth();
+  };
   for (let w = 0; w < weeks; w++) {
-    const m = asDate(addDays(start, w * 7)).getUTCMonth();
-    if (w === 0 || m !== asDate(addDays(start, (w - 1) * 7)).getUTCMonth()) marks.push([w, m]);
+    if (w === 0 || monthOfWeek(w) !== monthOfWeek(w - 1)) marks.push([w, monthOfWeek(w)]);
   }
   marks.forEach(([w, m], i) => {
     if (marks[i + 1] && marks[i + 1][0] - w < 3) return;
@@ -146,7 +152,11 @@ function chart(t, today, start, editable) {
   ["", "Mon", "", "Wed", "", "Fri", ""].forEach((d) => days.append(el("span", null, d)));
 
   const cells = el("div", "cells");
-  for (let d = start; d <= today; d = addDays(d, 1)) {
+  for (let d = start; d <= last; d = addDays(d, 1)) {
+    if (d < first) {
+      cells.append(el("div", "cell pad"));
+      continue;
+    }
     const on = set.has(d);
     const c = el("div", "cell" + (on ? " on" : "") + (d === today ? " today" : ""));
     c.title = `${d}${on ? " - done" : ""}`;
@@ -165,7 +175,7 @@ function chart(t, today, start, editable) {
 function render() {
   const editable = !!token();
   const today = todayStr();
-  const start = addDays(today, -(52 * 7 + weekday(today)));
+  const year = today.slice(0, 4);
 
   const auth = document.getElementById("auth");
   auth.replaceChildren(...(editable ? [button("New tracker", newTracker), button("Log out", logOut)] : [button("Log in", logIn)]));
@@ -176,19 +186,23 @@ function render() {
 
   for (const t of state.trackers) {
     const set = state.data[t.id];
-    const count = [...set].filter((d) => d >= start && d <= today).length;
+    const count = [...set].filter((d) => d.startsWith(year)).length;
     const card = el("section", "card");
     const head = el("div", "card-head");
     const title = el("div");
-    title.append(el("h2", null, t.name), el("div", "count", `${count} day${count === 1 ? "" : "s"} in the last year`));
+    title.append(el("h2", null, t.name), el("div", "count", `${count} day${count === 1 ? "" : "s"} in ${year}`));
     head.append(title);
     if (editable) head.append(button(set.has(today) ? "Undo today" : "Done today", () => toggle(t.id, today)));
     const scroll = el("div", "scroll");
-    scroll.append(chart(t, today, start, editable));
+    scroll.append(chart(t, today, year, editable));
     card.append(head, scroll);
     main.append(card);
   }
-  document.querySelectorAll(".scroll").forEach((s) => (s.scrollLeft = s.scrollWidth));
+  // On narrow screens, center today's square.
+  document.querySelectorAll(".scroll").forEach((s) => {
+    const c = s.querySelector(".today");
+    if (c) s.scrollLeft = c.offsetLeft - s.clientWidth / 2;
+  });
 }
 
 async function load() {

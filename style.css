@@ -53,7 +53,7 @@ button {
 .card-head h2 { font-size: 16px; margin: 0; }
 .count { font-size: 13px; color: var(--muted); }
 
-.scroll { overflow-x: auto; padding: 2px 2px 4px 0; }
+.scroll { position: relative; overflow-x: auto; padding: 2px 2px 4px 0; }
 .chart {
   display: grid;
   grid-template-columns: auto auto;
@@ -77,3 +77,4 @@ button {
 .cell.on { background: var(--on); }
 .cell.today { outline: 1px solid var(--muted); outline-offset: 1px; }
 .editable .cell { cursor: pointer; }
+.cell.pad { visibility: hidden; }
