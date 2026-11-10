@@ -123,23 +123,43 @@ function button(text, onClick) {
   return b;
 }
 
-function chart(t, today, year, editable) {
-  const set = state.data[t.id];
-  const root = el("div", "chart" + (editable ? " editable" : ""));
+function yearRange(year, today) {
   const first = `${year}-01-01`;
-  const last = today;
   const start = addDays(first, -weekday(first));
-  const weeks = Math.floor((asDate(last) - asDate(start)) / 864e5 / 7) + 1;
-  // Size columns for the whole year so squares fit the width and stay the same size all year.
-  const yearWeeks = Math.floor((asDate(`${year}-12-31`) - asDate(start)) / 864e5 / 7) + 1;
-  const columns = `repeat(${yearWeeks}, minmax(0, 1fr))`;
+  const weeksTo = (d) => Math.floor((asDate(d) - asDate(start)) / 864e5 / 7) + 1;
+  return { first, start, weeks: weeksTo(today), yearWeeks: weeksTo(`${year}-12-31`) };
+}
+
+function cellGrid(t, today, first, start, onClick) {
+  const set = state.data[t.id];
+  const cells = el("div", "cells");
+  for (let d = start; d <= today; d = addDays(d, 1)) {
+    if (d < first) {
+      cells.append(el("div", "cell pad"));
+      continue;
+    }
+    const on = set.has(d);
+    const c = el("div", "cell" + (on ? " on" : "") + (d === today ? " today" : ""));
+    c.title = `${d}${on ? " - done" : ""}`;
+    if (onClick) {
+      const date = d;
+      c.onclick = () => onClick(date);
+    }
+    cells.append(c);
+  }
+  return cells;
+}
+
+function chart(t, today, year, editable) {
+  const { first, start, weeks } = yearRange(year, today);
+  const root = el("div", "chart" + (editable ? " editable" : ""));
 
   // Month labels at the week holding each month's 1st, dropped if the next one is too close to fit.
   const months = el("div", "months");
   const marks = [];
   const monthOfWeek = (w) => {
     const sat = addDays(start, w * 7 + 6);
-    return asDate(sat > last ? last : sat).getUTCMonth();
+    return asDate(sat > today ? today : sat).getUTCMonth();
   };
   for (let w = 0; w < weeks; w++) {
     if (w === 0 || monthOfWeek(w) !== monthOfWeek(w - 1)) marks.push([w, monthOfWeek(w)]);
@@ -154,26 +174,20 @@ function chart(t, today, year, editable) {
   const days = el("div", "days");
   ["", "Mon", "", "Wed", "", "Fri", ""].forEach((d) => days.append(el("span", null, d)));
 
-  const cells = el("div", "cells");
-  months.style.gridTemplateColumns = cells.style.gridTemplateColumns = columns;
-  for (let d = start; d <= last; d = addDays(d, 1)) {
-    if (d < first) {
-      cells.append(el("div", "cell pad"));
-      continue;
-    }
-    const on = set.has(d);
-    const c = el("div", "cell" + (on ? " on" : "") + (d === today ? " today" : ""));
-    c.title = `${d}${on ? " - done" : ""}`;
-    c.setAttribute("aria-label", c.title);
-    if (editable) {
-      const date = d;
-      c.onclick = () => toggle(t.id, date);
-    }
-    cells.append(c);
-  }
-
+  const cells = cellGrid(t, today, first, start, editable ? (date) => toggle(t.id, date) : null);
   root.append(el("div"), months, days, cells);
-  return root;
+  const scroll = el("div", "scroll");
+  scroll.append(root);
+  return scroll;
+}
+
+// Read-only thumbnail of the year that fits the width; space is reserved for the rest of the year.
+function overview(t, today, year) {
+  const { first, start, yearWeeks } = yearRange(year, today);
+  const cells = cellGrid(t, today, first, start, null);
+  cells.className = "mini";
+  cells.style.gridTemplateColumns = `repeat(${yearWeeks}, minmax(0, 1fr))`;
+  return cells;
 }
 
 function render() {
@@ -197,9 +211,14 @@ function render() {
     title.append(el("h2", null, t.name), el("div", "count", `${count} day${count === 1 ? "" : "s"} in ${year}`));
     head.append(title);
     if (editable) head.append(button(set.has(today) ? "Undo today" : "Done today", () => toggle(t.id, today)));
-    card.append(head, chart(t, today, year, editable));
+    card.append(head, chart(t, today, year, editable), overview(t, today, year));
     main.append(card);
   }
+  // Start the scrollable chart at today.
+  document.querySelectorAll(".scroll").forEach((s) => {
+    const c = s.querySelector(".today");
+    if (c) s.scrollLeft = c.offsetLeft - s.clientWidth / 2;
+  });
 }
 
 async function load() {
