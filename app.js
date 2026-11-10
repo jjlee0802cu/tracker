@@ -130,6 +130,9 @@ function chart(t, today, year, editable) {
   const last = today;
   const start = addDays(first, -weekday(first));
   const weeks = Math.floor((asDate(last) - asDate(start)) / 864e5 / 7) + 1;
+  // Size columns for the whole year so squares fit the width and stay the same size all year.
+  const yearWeeks = Math.floor((asDate(`${year}-12-31`) - asDate(start)) / 864e5 / 7) + 1;
+  const columns = `repeat(${yearWeeks}, minmax(0, 1fr))`;
 
   // Month labels at the week holding each month's 1st, dropped if the next one is too close to fit.
   const months = el("div", "months");
@@ -152,6 +155,7 @@ function chart(t, today, year, editable) {
   ["", "Mon", "", "Wed", "", "Fri", ""].forEach((d) => days.append(el("span", null, d)));
 
   const cells = el("div", "cells");
+  months.style.gridTemplateColumns = cells.style.gridTemplateColumns = columns;
   for (let d = start; d <= last; d = addDays(d, 1)) {
     if (d < first) {
       cells.append(el("div", "cell pad"));
@@ -193,16 +197,9 @@ function render() {
     title.append(el("h2", null, t.name), el("div", "count", `${count} day${count === 1 ? "" : "s"} in ${year}`));
     head.append(title);
     if (editable) head.append(button(set.has(today) ? "Undo today" : "Done today", () => toggle(t.id, today)));
-    const scroll = el("div", "scroll");
-    scroll.append(chart(t, today, year, editable));
-    card.append(head, scroll);
+    card.append(head, chart(t, today, year, editable));
     main.append(card);
   }
-  // On narrow screens, center today's square.
-  document.querySelectorAll(".scroll").forEach((s) => {
-    const c = s.querySelector(".today");
-    if (c) s.scrollLeft = c.offsetLeft - s.clientWidth / 2;
-  });
 }
 
 async function load() {
