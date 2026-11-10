@@ -1,1 +1,10 @@
-[{"id": "workout", "name": "Workout"}]
+[
+  {
+    "id": "workout",
+    "name": "Workout"
+  },
+  {
+    "id": "temp",
+    "name": "Temp"
+  }
+]
