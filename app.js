@@ -72,15 +72,19 @@ function save(fn) {
 }
 
 // --- actions ---
-function toggle(id, date) {
-  const set = state.data[id];
-  const had = set.has(date);
-  if (date !== todayStr() && !confirm(`${had ? "Unmark" : "Mark"} ${date}?`)) return;
-  had ? set.delete(date) : set.add(date);
+function setScale(id, date) {
+  const days = state.data[id];
+  const input = prompt(`Scale for ${date} (0 to clear)`, days[date] || "");
+  if (input === null) return;
+  const n = Math.max(0, Math.floor(Number(input)));
+  if (!Number.isFinite(n)) return alert("Enter a number.");
+  if (n === (days[date] || 0)) return;
+  if (n) days[date] = n;
+  else delete days[date];
   render();
-  const dates = [...set].sort();
+  const sorted = Object.fromEntries(Object.entries(days).sort(([a], [b]) => (a < b ? -1 : 1)));
   const name = state.trackers.find((t) => t.id === id).name;
-  save(() => writeJson(`data/${id}.json`, dates, `${name}: ${had ? "unmark" : "mark"} ${date}`));
+  save(() => writeJson(`data/${id}.json`, sorted, `${name}: ${date} scale ${n}`));
 }
 
 function newTracker() {
@@ -89,11 +93,11 @@ function newTracker() {
   const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   if (!id || state.trackers.some((t) => t.id === id)) return alert("That name is empty or already used.");
   state.trackers.push({ id, name });
-  state.data[id] = new Set();
+  state.data[id] = {};
   render();
   const trackers = [...state.trackers];
   save(async () => {
-    await writeJson(`data/${id}.json`, [], `Create tracker ${name}`);
+    await writeJson(`data/${id}.json`, {}, `Create tracker ${name}`);
     await writeJson(INDEX, trackers, `Add tracker ${name}`);
   });
 }
@@ -130,17 +134,23 @@ function yearRange(year, today) {
   return { first, start, weeks: weeksTo(today), yearWeeks: weeksTo(`${year}-12-31`) };
 }
 
+// Shade 1-4 relative to the tracker's highest scale this year, like GitHub's levels.
+function level(v, max) {
+  return v ? Math.min(4, Math.ceil((4 * v) / max)) : 0;
+}
+
 function cellGrid(t, today, first, start, onClick) {
-  const set = state.data[t.id];
+  const days = state.data[t.id];
+  const max = Math.max(1, ...Object.entries(days).filter(([d]) => d >= first).map(([, v]) => v));
   const cells = el("div", "cells");
   for (let d = start; d <= today; d = addDays(d, 1)) {
     if (d < first) {
       cells.append(el("div", "cell pad"));
       continue;
     }
-    const on = set.has(d);
-    const c = el("div", "cell" + (on ? " on" : "") + (d === today ? " today" : ""));
-    c.title = `${d}${on ? " - done" : ""}`;
+    const v = days[d] || 0;
+    const c = el("div", `cell l${level(v, max)}` + (d === today ? " today" : ""));
+    c.title = `${d}${v ? ` - scale ${v}` : ""}`;
     if (onClick) {
       const date = d;
       c.onclick = () => onClick(date);
@@ -174,7 +184,7 @@ function chart(t, today, year, editable) {
   const days = el("div", "days");
   ["", "Mon", "", "Wed", "", "Fri", ""].forEach((d) => days.append(el("span", null, d)));
 
-  const cells = cellGrid(t, today, first, start, editable ? (date) => toggle(t.id, date) : null);
+  const cells = cellGrid(t, today, first, start, editable ? (date) => setScale(t.id, date) : null);
   root.append(el("div"), months, days, cells);
   const scroll = el("div", "scroll");
   scroll.append(root);
@@ -190,6 +200,14 @@ function overview(t, today, year) {
   return cells;
 }
 
+function legend() {
+  const l = el("div", "legend");
+  l.append(el("span", null, "Less"));
+  for (let i = 0; i <= 4; i++) l.append(el("div", `cell l${i}`));
+  l.append(el("span", null, "More"));
+  return l;
+}
+
 function render() {
   const editable = !!token();
   const today = todayStr();
@@ -203,22 +221,26 @@ function render() {
   if (!state.trackers.length) main.append(el("p", "muted", "No trackers yet."));
 
   for (const t of state.trackers) {
-    const set = state.data[t.id];
-    const count = [...set].filter((d) => d.startsWith(year)).length;
+    const days = state.data[t.id];
+    const count = Object.keys(days).filter((d) => d.startsWith(year)).length;
     const card = el("section", "card");
     const head = el("div", "card-head");
     const title = el("div");
     title.append(el("h2", null, t.name), el("div", "count", `${count} day${count === 1 ? "" : "s"} in ${year}`));
     head.append(title);
-    if (editable) head.append(button(set.has(today) ? "Undo today" : "Done today", () => toggle(t.id, today)));
-    card.append(head, chart(t, today, year, editable), overview(t, today, year));
+    if (editable) head.append(button(days[today] ? `Today: ${days[today]}` : "Log today", () => setScale(t.id, today)));
+    const foot = el("div", "card-foot");
+    foot.append(overview(t, today, year), legend());
+    card.append(head, chart(t, today, year, editable), foot);
     main.append(card);
   }
-  // Start the scrollable chart at today.
-  document.querySelectorAll(".scroll").forEach((s) => {
-    const c = s.querySelector(".today");
-    if (c) s.scrollLeft = c.offsetLeft - s.clientWidth / 2;
-  });
+  // Start the scrollable chart at today, after layout settles.
+  requestAnimationFrame(() =>
+    document.querySelectorAll(".scroll").forEach((s) => {
+      const c = s.querySelector(".today");
+      if (c) s.scrollLeft = c.offsetLeft - s.clientWidth / 2;
+    })
+  );
 }
 
 async function load() {
@@ -226,7 +248,11 @@ async function load() {
   try {
     state.trackers = (await readJson(INDEX)) || [];
     const lists = await Promise.all(state.trackers.map((t) => readJson(`data/${t.id}.json`)));
-    state.trackers.forEach((t, i) => (state.data[t.id] = new Set(lists[i] || [])));
+    // Older files are a plain list of dates; treat each as scale 1.
+    state.trackers.forEach((t, i) => {
+      const raw = lists[i] || {};
+      state.data[t.id] = Array.isArray(raw) ? Object.fromEntries(raw.map((d) => [d, 1])) : raw;
+    });
   } catch (err) {
     alert(err.message);
     // A rejected token was cleared; reload read-only.
