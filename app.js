@@ -134,14 +134,23 @@ function yearRange(year, today) {
   return { first, start, weeks: weeksTo(today), yearWeeks: weeksTo(`${year}-12-31`) };
 }
 
-// Shade 1-4 relative to the tracker's highest scale this year, like GitHub's levels.
-function level(v, max) {
-  return v ? Math.min(4, Math.ceil((4 * v) / max)) : 0;
+// Quartiles of this year's logged values; equal values all get the lightest shade.
+function quartiles(values) {
+  const v = [...values].sort((a, b) => a - b);
+  const q = (p) => {
+    const i = (v.length - 1) * p;
+    return v[Math.floor(i)] + (v[Math.ceil(i)] - v[Math.floor(i)]) * (i % 1);
+  };
+  return v.length ? [q(0.25), q(0.5), q(0.75)] : [];
+}
+
+function level(v, qs) {
+  return v ? 1 + qs.filter((t) => v > t).length : 0;
 }
 
 function cellGrid(t, today, first, start, onClick) {
   const days = state.data[t.id];
-  const max = Math.max(1, ...Object.entries(days).filter(([d]) => d >= first).map(([, v]) => v));
+  const qs = quartiles(Object.entries(days).filter(([d]) => d >= first && d <= today).map(([, v]) => v));
   const cells = el("div", "cells");
   for (let d = start; d <= today; d = addDays(d, 1)) {
     if (d < first) {
@@ -149,7 +158,7 @@ function cellGrid(t, today, first, start, onClick) {
       continue;
     }
     const v = days[d] || 0;
-    const c = el("div", `cell l${level(v, max)}` + (d === today ? " today" : ""));
+    const c = el("div", `cell l${level(v, qs)}` + (d === today ? " today" : ""));
     c.title = `${d}${v ? ` - scale ${v}` : ""}`;
     if (onClick) {
       const date = d;
